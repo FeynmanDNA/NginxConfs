@@ -76,6 +76,16 @@ after the edit:
 
 generally, port 22 (ssh), 80 (http) and 443 (https).
 
+in a typical ufw.log:
+- TOS, for Type of service,
+- DST is destination ip,
+- SRC is source ip
+- TTL is time to live, a small counter decremented each time a packet is passed through another router (so if there is a loop, the package destroy itself once to 0)
+- DF is "don't fragment" bit, asking to packet to not be fragmented when sent
+- PROTO is the protocol (mostly TCP and UDP)
+- SPT is the source port
+- DPT is the destination port
+
 ## 3. NGINX config
 
 All NGINX configuration files are located in the `/etc/nginx/` directory. The **primary** configuration file is `/etc/nginx/nginx.conf`.
