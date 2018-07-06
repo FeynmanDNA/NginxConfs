@@ -1,15 +1,9 @@
-# FeynmanDNA linode VPS Guide
+# FeynmanDNA Linode VPS for Nginx/ufw/Gunicorn/Flask Guide
 
-## 1. Useful system commands
+## 1. Useful commands
 
 `hostnamectl`
 ```
-   Static hostname: Haruka
-         Icon name: computer-vm
-           Chassis: vm
-        Machine ID: e361c4db74e44117bc0757e44067f0cb
-           Boot ID: c0b253175f08460e9bf39c31b2910601
-    Virtualization: qemu
   Operating System: Debian GNU/Linux 9 (stretch)
             Kernel: Linux 4.9.0-6-amd64
       Architecture: x86-64
@@ -21,25 +15,9 @@ Architecture:          x86_64
 CPU op-mode(s):        32-bit, 64-bit
 Byte Order:            Little Endian
 CPU(s):                1
-On-line CPU(s) list:   0
-Thread(s) per core:    1
-Core(s) per socket:    1
-Socket(s):             1
-NUMA node(s):          1
-Vendor ID:             GenuineIntel
-CPU family:            6
-Model:                 79
 Model name:            Intel(R) Xeon(R) CPU E5-2697 v4 @ 2.30GHz
-Stepping:              1
 CPU MHz:               2299.968
-BogoMIPS:              4599.93
-Hypervisor vendor:     KVM
-Virtualization type:   full
-L1d cache:             32K
-L1i cache:             32K
-L2 cache:              4096K
-L3 cache:              16384K
-NUMA node0 CPU(s):     0
+
 ```
 
 ### Compress an Entire Directory or a Single File
@@ -58,7 +36,47 @@ Here’s what those switches actually mean:
 ### Upgrade pip3
 `sudo -H pip3 install --upgrade setuptools pip`
 
-## 2. NGINX config
+## 2. Firefall config (ufw)
+
+`sudo apt-get install ufw` for debian. UFW is included in Ubuntu by default but must be installed in Arch and Debian. Debian will start UFW’s systemd unit automatically and enable it to start on reboots. Then `sudo ufw enable` => 'Firewall is active and enabled on system startup'
+
+first allow for ssh(22/tcp):
+`sudo ufw allow ssh`
+
+and normalize the defaults:
+```
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+```
+
+Perform `sudo ufw status verbose` to see if you're even logging in the first place.
+If you're not, perform `sudo ufw logging on` if it isn't.
+If you are logging, but there are no `/var/log/ufw*` files, check to see if `rsyslog` is running: `sudo service rsyslog status`
+ufw logging file (need sudo to view content):
+`/var/log/ufw.log`
+
+To see the list of apps ufw knows about and can use:
+`sudo ufw app list`
+The app profiles should be stored in `/etc/ufw/applications.d`
+create a `nginx` file, and write (if you do not see the `Ngin *` in the `app list` in ufw:
+```
+[Nginx HTTP]
+title=Web Server (Nginx, HTTP)
+description=Small, but very powerful and efficient web server
+ports=80/tcp
+```
+then the `ufw app list` will display an entry:
+`Nginx HTTP`
+
+Enable Nginx in ufw by typing:
+`sudo ufw allow 'Nginx HTTP'`
+
+after the edit:
+`sudo ufw --force enable`
+
+generally, port 22 (ssh), 80 (http) and 443 (https).
+
+## 3. NGINX config
 
 All NGINX configuration files are located in the `/etc/nginx/` directory. The **primary** configuration file is `/etc/nginx/nginx.conf`.
 
@@ -70,7 +88,7 @@ Now let's look at the main `nginx.conf`:
 ```
 user  nginx;
 worker_processes  1;
- 
+
 error_log  /var/log/nginx/error.log warn;
 pid        /var/run/nginx.pid;
 ```
@@ -97,8 +115,8 @@ NGINX **site-specific** configuration files are kept in `/etc/nginx/conf.d/`. Ge
 
 **Gunicorn+Flask**
 
-Nginx pass web requests to Gunicorn. 
-Open a `server block`, use this block for requests for our server's domain name or IP address, and pass the `proxy-params` to a `location block` in the `server block`. 
+Nginx pass web requests to Gunicorn.
+Open a `server block`, use this block for requests for our server's domain name or IP address, and pass the `proxy-params` to a `location block` in the `server block`.
 
 *Proxy Setups*
 If you deploy your application using one of these servers behind an HTTP proxy you will need to rewrite a few headers in order for the application to work. The two problematic values in the `WSGI` environment usually are `REMOTE_ADDR` and `HTTP_HOST`. You can configure your httpd to pass these headers, or you can fix them in middleware. Here we will configure the Nginx httpd to provide these Headers.
@@ -112,7 +130,7 @@ server {
     server_name  your_public_dnsname_here;
     # do not use the default root for site data, as it will be removed during nginx upgrade
     root filepath_here;
-    
+
     # added the proxy_pass so the nginx listens for port N for the flask app
 	# added the proxy_set_header for IP and HOST
 	# Proxy pass directive must be the same port on which the gunicorn process is listening.
@@ -126,6 +144,13 @@ server {
         proxy_set_header   X-Forwarded-For      $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto    $scheme;
     }
+
+    location /static {
+        # handle static files directly, without forwarding
+        alias /home/N/app/static;
+        expires 30d;
+    }
+
 }
 ```
 In Nginx, `$host` vs `$http_host`:
@@ -134,7 +159,7 @@ In Nginx, `$host` vs `$http_host`:
 `location` block serves the routes.
 Do not use `root` inside Location Block, use `alias`.
 
-The `try_files` directive exists for an amazing reason: It tries files in a specific order. NGINX can first try to serve the static content, and if it can’t, it moves on. 
+The `try_files` directive exists for an amazing reason: It tries files in a specific order. NGINX can first try to serve the static content, and if it can’t, it moves on.
 ```
     location / {
         try_files $uri $uri/ /index.php;
@@ -179,91 +204,62 @@ We can make sure that our web server will restart automatically when the server 
 See Server Logs
 `/var/log/nginx/`
 
-## 3. Firefall config (ufw)
-
-`sudo apt-get install ufw` for debian. UFW is included in Ubuntu by default but must be installed in Arch and Debian. Debian will start UFW’s systemd unit automatically and enable it to start on reboots. Then `sudo ufw enable` => 'Firewall is active and enabled on system startup'
-
-first allow for ssh(22/tcp):
-`sudo ufw allow ssh`
-
-Then normalize the defaults:
-```
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-```
-
-allow for calculator-request:
-`sudo ufw allow 7717`
-
-Perform `sudo ufw status verbose` to see if you're even logging in the first place. 
-If you're not, perform `sudo ufw logging on` if it isn't. 
-If you are logging, but there are no `/var/log/ufw*` files, check to see if `rsyslog` is running: `sudo service rsyslog status`
-ufw logging file (need sudo to view content):
-`/var/log/ufw.log`
-
-To see the list of apps ufw knows about and can use:
-`sudo ufw app list`
-The app profiles should be stored in `/etc/ufw/applications.d`
-create a `nginx` file, and write (if you do not see the `Ngin *` in the `app list` in ufw:
-```
-[Nginx HTTP]
-title=Web Server (Nginx, HTTP)
-description=Small, but very powerful and efficient web server
-ports=80/tcp
-```
-then the `ufw app list` will display an entry:
-`Nginx HTTP`
-
-Enable Nginx in ufw by typing:
-`sudo ufw allow 'Nginx HTTP'`
 
 ## 4. Gunicorn/Flask
 
 `sudo pip3 install gunicorn flask`
+
+Gunicorn is a pure python production-level server. Flask is for fast development.
+
+To start the flask under Gunicorn:
+`gunicorn -b localhost:7717 -w 4 <module that contains the application>:<name of this gunicorn app>`
+`-b` option gunicorn listen for requests at port N
+`-w` option configures how many workers gunicorn will run. Having four workers allows the application to handle up to four clients concurrently.
 
 Number of workers in Gunicorn, usually 4 is enough.
 ```
 def number_of_workers():
     return (multiprocessing.cpu_count() * 2) + 1
 ```
+We will not run Gunicorn/Flask from the command-line. We will have it under constant monitoring, and launch with `Supervisor`.
 
+After flask/gunicorn is changed, do:
+`sudo service supervisor restart`
+to see the changes implemented
+OR for the gunicorn/flask app specifically:
+```
+sudo supervisorctl stop yjg_calculator_app     # stop the current server
+sudo supervisorctl start yjg_calculator_webapp    # start a new server
+```
 
 ## 5. Supervisor
 
 `sudo apt-get install supervisor`
 
 the configuration for Supervisor is in `/etc/supervisor/conf.d/`
-create a new `supervisor.conf`
+create a new `calculatorapp.conf`
 ```
 [program:yjg_calculator_webapp]
-command=/home/dir/gunicorn app:app -b localhost:8000
+command=gunicorn -b localhost:8000 -w 4 flask:app
 directory=/home/deploy/webapp
-user=deploy
+user=<user name>
 autostart=true
 autorestart=true
-stderr_logfile=/var/log/hello_world/hello_world.err.log
-stdout_logfile=/var/log/hello_world/hello_world.out.log
+stopasgroup=true
+killasgroup=true
 ```
 
 To enable the configuration, run the following commands:
-
 `sudo supervisorctl reread`
 then `sudo service supervisor restart`
 
 This should start a new process. To check the status of all monitored apps:
-
 `sudo supervisorctl status`
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+## References:
+1. https://blog.miguelgrinberg.com/post/the-flask-mega-tutorial-part-xvii-deployment-on-linux
+2. http://flask.pocoo.org/docs/1.0/deploying/wsgi-standalone/#gunicorn
+3. https://www.linode.com/docs/web-servers/nginx/nginx-installation-and-basic-setup/
+4. https://www.linode.com/docs/web-servers/nginx/slightly-more-advanced-configurations-for-nginx/
+5. https://www.techrepublic.com/article/how-to-configure-gzip-compression-with-nginx/
+6. https://www.digitalocean.com/community/tutorials/how-to-serve-flask-applications-with-gunicorn-and-nginx-on-ubuntu-14-0
