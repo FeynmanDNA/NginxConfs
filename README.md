@@ -74,6 +74,12 @@ Enable Nginx in ufw by typing:
 after the edit:
 `sudo ufw --force enable`
 
+to delete ufw rules:
+`sudo ufw delete allow ssh`
+
+for the yjg-calculator, need to open port 7717:
+`sudo ufw allow 7717`
+
 generally, port 22 (ssh), 80 (http) and 443 (https).
 
 in a typical ufw.log:
@@ -174,6 +180,14 @@ The `try_files` directive exists for an amazing reason: It tries files in a spec
     location / {
         try_files $uri $uri/ /index.php;
     }
+```
+
+**React-webpack-build**
+In order for webpack's index.html to work, the parameters to `try_files` should be URIs and not pathnames. This will tell nginx to forward other requests to the index.html file too:
+```
+location / {
+  try_files $uri $uri/ /index.html;
+}
 ```
 
 Besides the Gzip, you can also Configuring Browser Caching:
